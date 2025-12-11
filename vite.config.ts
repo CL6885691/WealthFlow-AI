@@ -5,6 +5,9 @@ export default defineConfig(({ mode }) => {
   // loadEnv loads .env files. The third argument '' means load all env vars, including system/shell ones.
   const env = loadEnv(mode, process.cwd(), '');
   return {
+    // START CHANGE: Set base to relative path for GitHub Pages deployment
+    base: './',
+    // END CHANGE
     plugins: [react()],
     define: {
       // Define explicit replacements for process.env variables.

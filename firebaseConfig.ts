@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, Auth } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
 
 // Declare process to avoid TypeScript errors
 declare const process: { env: Record<string, string> };
@@ -14,12 +14,24 @@ const firebaseConfig = {
   appId: process.env.VITE_FIREBASE_APP_ID
 };
 
-// Check if config is valid to prevent silent crashes or confusing errors
-if (!firebaseConfig.apiKey) {
-  console.error("Firebase Configuration Error: API Key is missing. Check your .env file or build configuration.");
+let app;
+let auth: Auth;
+let db: Firestore;
+let initializationError: string | null = null;
+
+try {
+  // Check if config is valid to prevent silent crashes or confusing errors
+  if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'undefined') {
+     throw new Error("Firebase API Key is missing. Please configure GitHub Secrets.");
+  }
+
+  // Initialize Firebase
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (error: any) {
+  console.error("Firebase Initialization Error:", error);
+  initializationError = error.message;
 }
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+export { auth, db, initializationError };

@@ -7,7 +7,7 @@ import { Accounts } from './components/Accounts';
 import { Transactions } from './components/Transactions';
 import { Stocks } from './components/Stocks';
 import { Reports } from './components/Reports';
-import { auth } from './firebaseConfig';
+import { auth, initializationError } from './firebaseConfig'; // Import initializationError
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
   subscribeToAccounts, 
@@ -24,6 +24,24 @@ import {
 } from './services/dbService';
 
 const App: React.FC = () => {
+  // 0. Safety Check for Config
+  if (initializationError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center">
+         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border-l-4 border-red-500">
+            <h1 className="text-2xl font-bold text-slate-800 mb-2">Configuration Error</h1>
+            <p className="text-slate-600 mb-4">The application could not start because the database configuration is missing.</p>
+            <div className="bg-slate-100 p-4 rounded-lg text-left text-xs font-mono text-slate-700 overflow-auto mb-4">
+              Error: {initializationError}
+            </div>
+            <p className="text-sm text-slate-500">
+              Please check your <strong>GitHub Secrets</strong> settings. Ensure <code>FIREBASE_API_KEY</code> and other variables are set correctly in the repository settings.
+            </p>
+         </div>
+      </div>
+    );
+  }
+
   const [user, setUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<View>('LOGIN');
   const [loading, setLoading] = useState(true);
@@ -35,6 +53,8 @@ const App: React.FC = () => {
 
   // 1. Auth Listener
   useEffect(() => {
+    if (!auth) return; // Guard against undefined auth
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         setUser({
@@ -70,47 +90,8 @@ const App: React.FC = () => {
     };
   }, [user]);
 
-  // --- Handlers that wrapper DB services ---
-  // Note: We don't set local state here manually because the 'subscribe' hooks above
-  // will automatically update the state when Firestore changes.
-
   const handleLogout = async () => {
-    await signOut(auth);
-  };
-
-  const handleAddAccount = async (newAccount: BankAccount) => {
-    if (!user) return;
-    const { id, ...data } = newAccount;
-    // We ignore the ID passed from UI as Firestore generates one, or we could use it as doc ID
-    await addAccount(user.id, data);
-  };
-
-  // Wrapper to match the component interface
-  const handleSetAccounts = (action: React.SetStateAction<BankAccount[]>) => {
-    // This is a hack because the child components expect setAccounts to handle local state.
-    // Ideally, we refactor children to call 'addAccount' / 'deleteAccount' directly.
-    // For now, we intercept the update to perform DB actions where possible.
-    // However, with real-time DB, we should pass explicit handler functions to children.
-    console.warn("Direct state manipulation prevented in favor of DB sync");
-  };
-
-  // Simplified: In a full refactor, we would pass 'onAddAccount', 'onDeleteAccount' props 
-  // to components instead of 'setAccounts'. For this transition, we will modify the 
-  // child components slightly or wrap logic. 
-  // 
-  // To keep changes minimal to the XML response size, I will keep the prop names 
-  // but change the logic inside the components to calling services if I were refactoring them all.
-  // 
-  // STRATEGY: I will modify the rendering logic below to pass wrapper functions 
-  // that look like setState but call DB functions.
-
-  const accountStateWrapper = (value: any) => {
-      if (typeof value === 'function') {
-         // This is tricky without changing children. 
-         // Let's rely on the child components modification to call services directly?
-         // No, the prompt asked to "change the app". 
-         // I will modify App.tsx to pass explicit handlers and update children in next steps.
-      }
+    if (auth) await signOut(auth);
   };
 
   if (loading) {
@@ -118,7 +99,7 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    return <Auth onLogin={() => {}} />; // Auth component now handles Firebase login internally
+    return <Auth onLogin={() => {}} />;
   }
 
   return (
@@ -134,9 +115,8 @@ const App: React.FC = () => {
       {currentView === 'ACCOUNTS' && (
         <Accounts 
           accounts={accounts} 
-          // @ts-ignore: We are passing a custom object/function to handle DB ops in the next component update
+          // @ts-ignore
           setAccounts={null} 
-          // New props for DB
           onAdd={(acc) => addAccount(user.id, acc)}
           onUpdate={(id, data) => updateAccount(id, data)}
           onDelete={(id) => deleteAccount(id)}
@@ -149,11 +129,9 @@ const App: React.FC = () => {
           setTransactions={null} 
           accounts={accounts} 
           // @ts-ignore
-          setAccounts={null} // Transactions shouldn't update accounts directly anymore, DB triggers handle it
+          setAccounts={null}
           onAdd={(tx) => {
-             // 1. Add Transaction
              addTransaction(user.id, tx);
-             // 2. Update Account Balance
              const acc = accounts.find(a => a.id === tx.accountId);
              if (acc) {
                 const change = tx.type === 'INCOME' ? tx.amount : -tx.amount;
@@ -164,7 +142,6 @@ const App: React.FC = () => {
              const tx = transactions.find(t => t.id === txId);
              if (tx) {
                 deleteTxService(txId);
-                // Revert balance
                 const acc = accounts.find(a => a.id === tx.accountId);
                 if (acc) {
                     const revert = tx.type === 'INCOME' ? -tx.amount : tx.amount;
